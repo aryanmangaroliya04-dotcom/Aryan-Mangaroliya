@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidCustomer(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.phoneNo is string && data.phoneNo.size() >= 5 && data.phoneNo.size() <= 25 &&
+             (!('dob' in data) || (data.dob is string && data.dob.size() <= 20)) &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 200)) &&
+             (!('preferredStylist' in data) || (data.preferredStylist is string && data.preferredStylist.size() <= 100)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 500)) &&
+             (!('totalVisits' in data) || data.totalVisits is int) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAppointment(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             (!('customerId' in data) || (data.customerId is string && data.customerId.size() <= 128)) &&
+             data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 100 &&
+             (!('customerPhone' in data) || (data.customerPhone is string && data.customerPhone.size() <= 25)) &&
+             data.serviceName is string && data.serviceName.size() >= 1 && data.serviceName.size() <= 100 &&
+             (!('price' in data) || data.price is int) &&
+             (!('stylist' in data) || (data.stylist is string && data.stylist.size() <= 100)) &&
+             data.appointmentDate is string && data.appointmentDate.size() >= 4 && data.appointmentDate.size() <= 20 &&
+             data.appointmentTime is string && data.appointmentTime.size() >= 2 && data.appointmentTime.size() <= 20 &&
+             data.status in ['Pending', 'Confirmed', 'Completed', 'Cancelled'] &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 500)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+      match /customers/{customerId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(customerId) &&
+                         incoming().userId == userId &&
+                         incoming().keys().hasAll(['userId', 'name', 'phoneNo', 'email', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'name', 'phoneNo', 'dob', 'email', 'address', 'preferredStylist', 'notes', 'totalVisits', 'createdAt', 'updatedAt']) &&
+                         isValidCustomer(incoming());
+
+        allow update: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(customerId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidCustomer(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phoneNo', 'dob', 'email', 'address', 'preferredStylist', 'notes', 'totalVisits', 'updatedAt']);
+
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(customerId);
+      }
+
+      match /appointments/{appointmentId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(appointmentId) &&
+                         incoming().userId == userId &&
+                         incoming().keys().hasAll(['userId', 'customerName', 'serviceName', 'appointmentDate', 'appointmentTime', 'status', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'customerId', 'customerName', 'customerPhone', 'serviceName', 'price', 'stylist', 'appointmentDate', 'appointmentTime', 'status', 'notes', 'createdAt', 'updatedAt']) &&
+                         isValidAppointment(incoming());
+
+        allow update: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(appointmentId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidAppointment(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['customerId', 'customerName', 'customerPhone', 'serviceName', 'price', 'stylist', 'appointmentDate', 'appointmentTime', 'status', 'notes', 'updatedAt']);
+
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(appointmentId);
+      }
+    }
+  }
+}
